@@ -44,6 +44,9 @@ def load_series(cfg: dict) -> pd.Series:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", required=True)
+    ap.add_argument("--origin-offset", type=int, default=0,
+                    help="skip the first N origins (for chunked runs; results are appended)")
+    ap.add_argument("--max-origins", type=int, default=None, help="override config max_origins")
     args = ap.parse_args()
     cfg = yaml.safe_load(Path(args.config).read_text())
 
@@ -57,14 +60,20 @@ def main():
         initial_train=bt.get("initial_train", 24 * 365),
         step=bt.get("step", 24 * 30),
         fourier_orders={int(k): v for k, v in cfg.get("fourier_orders", {24: 8, 168: 4}).items()},
-        max_origins=bt.get("max_origins"),
+        max_origins=args.max_origins if args.max_origins is not None else bt.get("max_origins"),
+        origin_offset=args.origin_offset,
+        train_window=bt.get("train_window"),
     )
 
     out = Path(cfg.get("output", "results")) / (Path(args.config).stem + "_results.csv")
     out.parent.mkdir(parents=True, exist_ok=True)
+    if out.exists() and args.origin_offset > 0:
+        results = pd.concat([pd.read_csv(out, parse_dates=["origin"]), results],
+                            ignore_index=True)
+        results = results.drop_duplicates(subset=["origin", "model", "horizon"])
     results.to_csv(out, index=False)
     print(results.groupby(["model", "horizon"])["mase"].mean().round(3).unstack())
-    print(f"\nsaved -> {out}")
+    print(f"\norigins so far: {results.origin.nunique()}  saved -> {out}")
 
 
 if __name__ == "__main__":

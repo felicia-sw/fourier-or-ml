@@ -19,6 +19,8 @@ def rolling_origin_backtest(
     step: int = 24 * 30,          # retrain monthly
     fourier_orders: dict[float, int] | None = None,
     max_origins: int | None = None,
+    origin_offset: int = 0,
+    train_window: int | None = None,
     country: str = "US",
     char_window: int | None = None,
 ) -> pd.DataFrame:
@@ -33,15 +35,16 @@ def rolling_origin_backtest(
     """
     y = y.dropna()
     H = max(horizons)
-    origins = range(initial_train, len(y) - H, step)
+    origins = list(range(initial_train, len(y) - H, step))[origin_offset:]
     if max_origins is not None:
-        origins = list(origins)[:max_origins]
+        origins = origins[:max_origins]
 
     rows = []
-    for origin in tqdm(list(origins), desc="rolling origin"):
-        y_train = y.iloc[:origin]
+    for origin in tqdm(origins, desc="rolling origin"):
+        start = 0 if train_window is None else max(0, origin - train_window)
+        y_train = y.iloc[start:origin]
         y_test = y.iloc[origin : origin + H]
-        X_train = deterministic_features(y_train.index, t0=0,
+        X_train = deterministic_features(y_train.index, t0=start,
                                          fourier_orders=fourier_orders, country=country)
         X_future = deterministic_features(y_test.index, t0=origin,
                                           fourier_orders=fourier_orders, country=country)
