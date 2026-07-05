@@ -1,9 +1,10 @@
 """LightGBM forecasters (M2, M3) and the DHR-residual hybrid (M4).
 
-Scenario S1 (deterministic-only): direct prediction from future deterministic
-features — no lags, matching the information available to DHR's mean model.
-Scenario S2 (autoregressive): recursive forecasting with lags {1, 24, 168} and
-shifted rolling means, mirroring the information carried by DHR's ARMA errors.
+Feature encodings under the matched-information-set protocol:
+- M2 lgbm:     raw calendar integers + trend (prefixes cal_, trend) — no Fourier
+- M3 hybrid_a: calendar + Fourier + trend (prefixes=None -> all columns)
+Scenario S1 = deterministic only; S2 adds lags {1,24,168} + shifted rolling
+means, mirroring the information carried by DHR's ARMA errors.
 """
 from __future__ import annotations
 
@@ -14,6 +15,7 @@ import lightgbm as lgb
 
 from .base import Forecaster
 from .dhr import DynamicHarmonicRegression
+from ..features.build import LGBM_PREFIXES, select_columns
 from ..features.calendar import lag_features, DEFAULT_LAGS, DEFAULT_ROLLS
 
 _DEFAULT_PARAMS = dict(
@@ -27,16 +29,24 @@ _DEFAULT_PARAMS = dict(
 
 
 class LGBMForecaster(Forecaster):
-    def __init__(self, use_lags: bool = False, params: dict | None = None, name: str | None = None):
+    def __init__(
+        self,
+        use_lags: bool = False,
+        params: dict | None = None,
+        prefixes: tuple[str, ...] | None = LGBM_PREFIXES,
+        name: str | None = None,
+    ):
         self.use_lags = use_lags
         self.params = {**_DEFAULT_PARAMS, **(params or {})}
+        self.prefixes = prefixes
         self.name = name or ("lgbm_s2" if use_lags else "lgbm_s1")
 
     def fit(self, y: pd.Series, X: pd.DataFrame | None = None) -> "LGBMForecaster":
         if X is None:
             raise ValueError("LGBMForecaster requires deterministic features")
-        self._det_cols = list(X.columns)
-        feats = X.copy()
+        Xs = select_columns(X, self.prefixes)
+        self._det_cols = list(Xs.columns)
+        feats = Xs.copy()
         if self.use_lags:
             feats = pd.concat([feats, lag_features(y)], axis=1)
         mask = feats.notna().all(axis=1)

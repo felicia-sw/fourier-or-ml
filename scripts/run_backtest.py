@@ -23,9 +23,9 @@ MODEL_FACTORIES = {
     "snaive": lambda: SeasonalNaive(24),
     "harmonic_ols": lambda: DynamicHarmonicRegression(error_order=None),
     "dhr": lambda: DynamicHarmonicRegression(),
-    "lgbm_s1": lambda: LGBMForecaster(use_lags=False),
+    "lgbm_s1": lambda: LGBMForecaster(use_lags=False),                       # calendar encoding, no Fourier
     "lgbm_s2": lambda: LGBMForecaster(use_lags=True),
-    "hybrid_a": lambda: LGBMForecaster(use_lags=False, name="hybrid_a"),  # gets Fourier via shared X
+    "hybrid_a": lambda: LGBMForecaster(use_lags=False, prefixes=None, name="hybrid_a"),  # calendar + Fourier
     "hybrid_b": lambda: DHRResidualHybrid(),
 }
 
