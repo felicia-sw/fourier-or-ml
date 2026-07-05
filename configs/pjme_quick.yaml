@@ -1,0 +1,17 @@
+# Quick first look at real data: PJME, few origins. Not for the paper.
+data:
+  source: pjm
+  raw_dir: data/raw
+  zone: PJME
+
+models: [snaive, harmonic_ols, lgbm_s1, hybrid_a]
+
+fourier_orders: {24: 8, 168: 4, 8766: 3}
+
+backtest:
+  horizons: [1, 24, 168]
+  initial_train: 26280   # 3 years
+  step: 8760             # yearly origins for the quick look
+  max_origins: 2
+
+output: results
