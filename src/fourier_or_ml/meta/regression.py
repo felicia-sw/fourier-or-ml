@@ -19,16 +19,21 @@ def build_meta_table(
     characteristics: pd.DataFrame,
     model_a: str = "dhr",
     model_b: str = "lgbm_s1",
+    keys: tuple[str, ...] = ("origin", "horizon"),
 ) -> pd.DataFrame:
     """Join backtest results with per-window characteristics.
 
     `results`: tidy output of rolling_origin_backtest (origin, model, horizon, mase, ...)
-    `characteristics`: one row per origin with the extracted characteristics.
+    `characteristics`: one row per evaluation window with the extracted characteristics.
+    `keys`: identifying columns; on multi-series runs include the series id
+    (e.g. ("cell_id", "origin", "horizon")) — origins repeat across series,
+    so joining on origin alone would mix windows from different series.
     """
-    a = results[results.model == model_a].set_index(["origin", "horizon"])["mase"]
-    b = results[results.model == model_b].set_index(["origin", "horizon"])["mase"]
+    a = results[results.model == model_a].set_index(list(keys))["mase"]
+    b = results[results.model == model_b].set_index(list(keys))["mase"]
     ratio = np.log(a / b).rename(RESPONSE).reset_index()
-    return ratio.merge(characteristics, on="origin", how="left")
+    join_cols = [k for k in keys if k != "horizon" and k in characteristics.columns]
+    return ratio.merge(characteristics, on=join_cols, how="left")
 
 
 def fit_meta_regression(table: pd.DataFrame, groups: str | None = None):
