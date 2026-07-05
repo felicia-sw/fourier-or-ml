@@ -10,3 +10,4 @@ matplotlib>=3.8
 holidays>=0.40
 pytest>=7.4
 tqdm>=4.66
+pyarrow>=15.0

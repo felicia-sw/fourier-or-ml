@@ -23,7 +23,8 @@ def rolling_origin_backtest(
     train_window: int | None = None,
     country: str = "US",
     char_window: int | None = None,
-) -> pd.DataFrame:
+    collect_errors: bool = False,
+) -> pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame]:
     """Expanding-window evaluation.
 
     At each origin: fit every model on y[:origin] with the SAME deterministic
@@ -40,6 +41,7 @@ def rolling_origin_backtest(
         origins = origins[:max_origins]
 
     rows = []
+    error_rows = []
     for origin in tqdm(origins, desc="rolling origin"):
         start = 0 if train_window is None else max(0, origin - train_window)
         y_train = y.iloc[start:origin]
@@ -62,4 +64,16 @@ def rolling_origin_backtest(
                                    y_train.to_numpy())
                 rows.append({"origin": y.index[origin], "model": name, "horizon": h,
                              **scores, **chars})
-    return pd.DataFrame(rows)
+            if collect_errors:
+                # raw h-step-ahead errors, needed for Diebold-Mariano testing:
+                # at horizon h, the DM sample is the error at step h across origins
+                err = y_test.to_numpy() - preds.to_numpy()
+                error_rows.append(pd.DataFrame({
+                    "origin": y.index[origin], "model": name,
+                    "step": range(1, H + 1), "error": err,
+                }))
+    results = pd.DataFrame(rows)
+    if collect_errors:
+        errors = pd.concat(error_rows, ignore_index=True) if error_rows else pd.DataFrame()
+        return results, errors
+    return results

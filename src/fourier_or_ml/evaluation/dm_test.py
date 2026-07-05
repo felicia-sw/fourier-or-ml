@@ -33,3 +33,23 @@ def dm_test(
     dm_star = dm * correction
     p = 2 * stats.t.sf(np.abs(dm_star), df=n - 1)
     return float(dm_star), float(p)
+
+
+def dm_from_error_table(
+    errors: "pd.DataFrame",
+    model_a: str,
+    model_b: str,
+    horizon: int,
+) -> tuple[float, float]:
+    """DM test from a long-format error table (origin, model, step, error),
+    as produced by rolling_origin_backtest(collect_errors=True).
+
+    Uses the step-`horizon` error across origins for both models. With
+    non-overlapping origins (step >= horizon), h=1 in the correction is
+    appropriate; for overlapping origins pass the errors to `dm_test` directly
+    with the proper h.
+    """
+    import pandas as pd  # local import to keep scipy-only module light
+    sub = errors[errors.step == horizon].pivot(index="origin", columns="model", values="error")
+    sub = sub[[model_a, model_b]].dropna()
+    return dm_test(sub[model_a].to_numpy(), sub[model_b].to_numpy(), h=1)
