@@ -21,9 +21,16 @@ class DynamicHarmonicRegression(Forecaster):
         self,
         error_order: tuple[int, int, int] | None = (2, 0, 1),
         prefixes: tuple[str, ...] | None = DHR_PREFIXES,
+        error_window: int = 4320,
     ):
+        """error_window: fit the ARMA error model on the last `error_window`
+        residuals only (default 6 months). ARMA estimation cost grows with
+        series length, and recent residual dynamics dominate short-range
+        correction anyway — full-history fits on 100k+ hourly residuals are
+        prohibitively slow inside a rolling-origin backtest."""
         self.error_order = error_order
         self.prefixes = prefixes
+        self.error_window = error_window
         self.name = "dhr" if error_order else "harmonic_ols"
 
     def fit(self, y: pd.Series, X: pd.DataFrame | None = None) -> "DynamicHarmonicRegression":
@@ -34,11 +41,11 @@ class DynamicHarmonicRegression(Forecaster):
         Xc = add_constant(Xs.to_numpy(dtype=float), has_constant="add")
         self._ols = OLS(y.to_numpy(dtype=float), Xc).fit()
         self._last_index = y.index[-1]
-        resid = pd.Series(self._ols.resid)
+        resid = np.asarray(self._ols.resid)[-self.error_window:]
         self._arma = None
         if self.error_order is not None:
             try:
-                self._arma = ARIMA(resid.to_numpy(), order=self.error_order).fit()
+                self._arma = ARIMA(resid, order=self.error_order).fit()
             except Exception:
                 self._arma = None  # fall back to OLS-only if ARMA fails to converge
         return self

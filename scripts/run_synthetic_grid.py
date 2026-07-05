@@ -46,6 +46,12 @@ def fit_meta(results: pd.DataFrame, out: Path) -> None:
     acc = decision_frontier_accuracy(table, fitted)
     share_dhr = float((table[RESPONSE] < 0).mean())
     print(f"\nDHR wins {share_dhr:.1%} of windows; in-sample decision-frontier accuracy: {acc:.1%}")
+
+    # direct H1 check: mean log ratio (positive = LGBM better) by trend type x horizon
+    if "cfg_trend" in results.columns:
+        t = table.merge(results[["cell_id", "cfg_trend"]].drop_duplicates(), on="cell_id")
+        print("\nmean log(MASE_DHR/MASE_LGBM) by trend type x horizon (H1 check):")
+        print(t.pivot_table(RESPONSE, index="cfg_trend", columns="horizon").round(3))
     table.to_csv(out / "meta_table.csv", index=False)
 
 
@@ -56,6 +62,8 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--n", type=int, default=24 * 365 + 24 * 90)
     ap.add_argument("--max-origins", type=int, default=2)
+    ap.add_argument("--horizons", default="24,168,720",
+                    help="comma-separated forecast horizons in hours")
     ap.add_argument("--out", default="results/synthetic_grid")
     ap.add_argument("--fit-meta", action="store_true", help="only analyze accumulated results")
     args = ap.parse_args()
@@ -78,7 +86,7 @@ def main():
         y = generate(cfg)["y"]
         res = rolling_origin_backtest(
             y, FACTORIES,
-            horizons=(24, 168),
+            horizons=tuple(int(h) for h in args.horizons.split(",")),
             initial_train=24 * 365,
             step=24 * 30,
             fourier_orders={24: 6, 168: 3},
