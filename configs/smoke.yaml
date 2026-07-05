@@ -1,0 +1,23 @@
+# Fast end-to-end smoke test on one synthetic series (~2-3 min on a laptop)
+data:
+  source: synthetic
+  synthetic:
+    seasonal_strength: high
+    snr: snr4
+    trend: linear
+    anomaly_density: low
+    nonlinearity: absent
+    n: 13140          # 1.5 years hourly
+    seed: 42
+
+models: [snaive, dhr, lgbm_s1]
+
+fourier_orders: {24: 6, 168: 3}   # no annual terms on short windows
+
+backtest:
+  horizons: [1, 24, 168]
+  initial_train: 8760   # 1 year
+  step: 720
+  max_origins: 3
+
+output: results
