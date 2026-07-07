@@ -21,7 +21,24 @@ Google Docs; design summary is in README.md.
   stochastic wandering — keep this distinction, it matters for the paper).
 - **The full overnight run has NOT been done yet. That is the current task.**
 
-## Task: run the full experiment
+## Task: rerun the synthetic grid with GENERATOR v2 (current task)
+
+The v1 grid did not cover the real-load characteristic region and the decision
+rule failed to transfer to GEFCom (36% — see results/analysis/findings.md).
+The generator was recalibrated (v2, see `data/synthetic.py` comments): measured
+characteristics of v2 series now overlap the PJM/GEFCom 5–95% ranges.
+
+```bash
+mv results/full/grid_results.csv results/full/grid_results_v1.csv  # keep v1
+caffeinate -i python scripts/run_all.py > results/overnight2.log 2>&1
+# PJM zones + GEFCom are skipped automatically (files exist); only the grid reruns (~3 h).
+```
+
+After it finishes: recompute the meta-regression and transfer validation
+(grid v2 + PJM pooled -> GEFCom; scale-free characteristics only, join on
+cell_id+origin+horizon). Compare against v1 numbers in findings.md.
+
+## Task: run the full experiment (DONE 2026-07-06 — kept for reference)
 
 ```bash
 # 0. environment (once)

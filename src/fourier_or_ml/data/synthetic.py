@@ -15,12 +15,26 @@ import pandas as pd
 
 DAILY, WEEKLY, ANNUAL = 24, 168, 8766
 
-# Factorial levels (proposal Section 4.2)
-SEASONAL_STRENGTH = {"low": 0.3, "med": 1.0, "high": 3.0}
-SNR = {"snr1": 0.5, "snr2": 1.0, "snr3": 2.0, "snr4": 4.0, "snr5": 8.0}
+# Factorial levels (proposal Section 4.2).
+# GENERATOR v2 — recalibrated 2026-07-06 so measured characteristics of the
+# grid overlap the real-load region (PJM/GEFCom 60-day windows: seasonal
+# strength ~0.4-0.94, trend strength ~0.4-0.86 — mostly the annual cycle seen
+# by short STL windows — remainder share ~0.04-0.25, spectral entropy
+# ~0.23-0.49). v1 levels produced far noisier, weaker-seasonal series and the
+# decision rule did not transfer (see results/analysis/findings.md).
+SEASONAL_STRENGTH = {"low": 1.0, "med": 3.0, "high": 8.0}
+# SNR is defined against the SUB-ANNUAL signal (daily+weekly seasonality +
+# trend + driver): the annual component is nearly constant inside an
+# evaluation window, so calibrating noise against the full-series std (v1)
+# made windows far noisier than any real load series.
+SNR = {"snr1": 4.0, "snr2": 8.0, "snr3": 16.0, "snr4": 32.0, "snr5": 64.0}
 TREND = ("none", "linear", "piecewise")
 ANOMALY_DENSITY = {"low": 0.001, "med": 0.005, "high": 0.02}
 NONLINEARITY = ("absent", "mild", "strong")
+
+# relative amplitude per seasonal period: annual is weighted up so that short
+# STL windows register realistic "trend" strength, as they do on real load
+PERIOD_WEIGHTS = {DAILY: 1.0, WEEKLY: 0.7, ANNUAL: 5.0}
 
 
 @dataclass(frozen=True)
@@ -41,14 +55,28 @@ class SyntheticConfig:
         )
 
 
-def _seasonal_signal(t: np.ndarray, rng: np.random.Generator, strength: float) -> np.ndarray:
-    """Harmonic signal with random amplitudes over daily/weekly/annual cycles."""
-    sig = np.zeros_like(t, dtype=float)
+def _seasonal_signal(
+    t: np.ndarray, rng: np.random.Generator, strength: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """Harmonic signals with random amplitudes.
+
+    Returns (sub_annual, annual) separately: the noise level is calibrated
+    against the sub-annual signal only, because within a 60-day evaluation
+    window the annual component is nearly constant (it registers as trend).
+    """
+    sub = np.zeros_like(t, dtype=float)
+    ann = np.zeros_like(t, dtype=float)
     for period, n_harm in ((DAILY, 3), (WEEKLY, 2), (ANNUAL, 2)):
+        w = PERIOD_WEIGHTS[period]
+        part = np.zeros_like(t, dtype=float)
         for j in range(1, n_harm + 1):
-            a, b = rng.normal(0, 1, 2) / j
-            sig += a * np.sin(2 * np.pi * j * t / period) + b * np.cos(2 * np.pi * j * t / period)
-    return strength * sig
+            a, b = rng.normal(0, 1, 2) * w / j
+            part += a * np.sin(2 * np.pi * j * t / period) + b * np.cos(2 * np.pi * j * t / period)
+        if period == ANNUAL:
+            ann += part
+        else:
+            sub += part
+    return strength * sub, strength * ann
 
 
 def _driver_effect(t: np.ndarray, rng: np.random.Generator, mode: str) -> np.ndarray:
@@ -77,28 +105,35 @@ def generate(cfg: SyntheticConfig) -> pd.DataFrame:
     rng = np.random.default_rng(cfg.seed + hash(cfg.cell_id) % (2**16))
     t = np.arange(cfg.n)
 
-    seasonal = _seasonal_signal(t, rng, SEASONAL_STRENGTH[cfg.seasonal_strength])
+    seasonal_sub, seasonal_ann = _seasonal_signal(t, rng, SEASONAL_STRENGTH[cfg.seasonal_strength])
+    seasonal = seasonal_sub + seasonal_ann
 
     if cfg.trend == "none":
         trend = np.zeros(cfg.n)
     elif cfg.trend == "linear":
-        trend = 2.0 * t / cfg.n
+        trend = 6.0 * t / cfg.n
     else:  # piecewise
         brk = cfg.n // 2
-        trend = np.where(t < brk, 1.0 * t / cfg.n, 1.0 * brk / cfg.n + 3.0 * (t - brk) / cfg.n)
+        trend = np.where(t < brk, 2.0 * t / cfg.n, 2.0 * brk / cfg.n + 10.0 * (t - brk) / cfg.n)
 
     driver = _driver_effect(t, rng, cfg.nonlinearity)
 
     signal = seasonal + trend + driver
+    # calibrate noise against the sub-annual signal (see SNR comment above)
+    signal_sub = seasonal_sub + trend + driver
     noise = _arma_noise(cfg.n, rng)
-    noise *= signal.std() / (noise.std() * np.sqrt(SNR[cfg.snr]) + 1e-12)
+    noise *= signal_sub.std() / (noise.std() * np.sqrt(SNR[cfg.snr]) + 1e-12)
 
-    # holiday-like shocks: random days with a level shift
+    # holiday-like shocks: random days with a level shift. The density value is
+    # the target share of anomalous *hours* (matches the measured
+    # anomaly_density characteristic on real load, median ~0.008); v1's x24
+    # day-probability multiplier shocked up to 40% of days and flooded the STL
+    # remainder, which is why the v1 grid never reached real-load noise levels.
     shocks = np.zeros(cfg.n)
     n_days = cfg.n // DAILY
-    shock_days = rng.random(n_days) < ANOMALY_DENSITY[cfg.anomaly_density] * DAILY
+    shock_days = rng.random(n_days) < ANOMALY_DENSITY[cfg.anomaly_density] * 5
     for d in np.where(shock_days)[0]:
-        shocks[d * DAILY : (d + 1) * DAILY] = rng.normal(-2.0, 0.5) * signal.std()
+        shocks[d * DAILY : (d + 1) * DAILY] = rng.normal(-1.2, 0.3) * signal.std()
 
     idx = pd.date_range("2020-01-01", periods=cfg.n, freq="h")
     return pd.DataFrame(
